@@ -1,5 +1,8 @@
 """
-Utility functions for activation layers.
+fusion.models.utils.activation
+
+Temporary activation utility used until the Phase 4 implementation
+is available.
 """
 
 import torch.nn as nn
@@ -7,32 +10,33 @@ import torch.nn as nn
 
 def get_activation(name: str) -> nn.Module:
     """
-    Return a PyTorch activation module by name.
+    Return an activation module given its name.
 
     Args:
-        name: Activation name.
+        name: Name of the activation function.
 
     Returns:
-        nn.Module activation.
+        Instantiated PyTorch activation module.
 
     Raises:
-        ValueError: If activation is unsupported.
+        ValueError: If the activation name is not supported.
     """
-    name = name.lower()
-
-    activations = {
-        "relu": nn.ReLU(),
-        "gelu": nn.GELU(),
-        "tanh": nn.Tanh(),
-        "sigmoid": nn.Sigmoid(),
-        "leaky_relu": nn.LeakyReLU(),
-        "elu": nn.ELU(),
-        "selu": nn.SELU(),
-        "softplus": nn.Softplus(),
-        "identity": nn.Identity(),
+    mapping = {
+        "relu": nn.ReLU,
+        "gelu": nn.GELU,
+        "silu": nn.SiLU,
+        "swish": nn.SiLU,
+        "tanh": nn.Tanh,
+        "sigmoid": nn.Sigmoid,
+        "leaky_relu": nn.LeakyReLU,
+        "elu": nn.ELU,
     }
 
-    if name not in activations:
-        raise ValueError(f"Unsupported activation: {name}")
+    key = name.lower()
 
-    return activations[name]
+    if key not in mapping:
+        raise ValueError(
+            f"Unknown activation: {name}"
+        )
+
+    return mapping[key]()
