@@ -14,6 +14,10 @@
 | 2 | ❌ → ✅ | `test_output_is_contiguous` | `tests/test_attention.py` | `AssertionError` | `Output tensor is not contiguous.` |
 | 3 | ❌ → ✅ | `test_aggr_mode[lstm]` | `tests/test_graph.py` | `ValueError` (PyG) | `Can not perform aggregation since the 'index' tensor is not sorted.` |
 
+| 4 | ❌ → ✅ | `test_simple_mlp_*` | `tests/test_mlp.py` | `ModuleNotFoundError` | `No module named 'fusion.models.utils.activation'` |
+
+| 5 | ❌ → ✅ | `test_gated_mlp_output_shape` | `tests/test_mlp.py` | `ValueError` | `Unsupported activation: silu` |
+
 ---
 
 ## 2. Root Cause & Fix Details
@@ -24,6 +28,10 @@
 | 2 | `SpatialAttention` | `torch.transpose()` returns a **strided view** — it reorders axes without copying data, leaving the tensor non-contiguous in memory. Calling `.view()` on a non-contiguous tensor is undefined behavior and was producing a non-contiguous output. | Added `.contiguous()` between `transpose` and `view` in `SpatialAttention.forward` to force a memory-contiguous copy before reshaping. | `fusion/models/custom/attention/spatial_attention.py` |
 | 3 | `GraphSAGEEncoder` | PyG's `LSTMAggregation` (`aggr="lstm"`) processes node messages sequentially with an LSTM and **requires `edge_index` sorted by destination node** (`edge_index[1]`). The `_make_batch()` helper generates random unsorted edges — valid for `mean`/`max` (order-invariant) but explicitly rejected by `lstm`. | Added `edge_index = edge_index[:, edge_index[1].argsort()]` pre-sort inside the `lstm` branch of the parametrized test. Production module code was **not changed**. | `tests/test_graph.py` |
 
+| 4 | `SimpleMLP` | `SimpleMLP` imported `get_activation` from `fusion.models.utils.activation`, but the `activation.py` utility module was missing, causing test collection to fail before any tests executed. | Implemented `fusion/models/utils/activation.py` with `get_activation()` and added `fusion/models/utils/__init__.py` so the module could be imported successfully. | `fusion/models/utils/activation.py`, `fusion/models/utils/__init__.py` |
+
+| 5 | `GatedMLP` | `GatedMLP` uses the `silu` activation by default, but `get_activation()` did not support `"silu"`, causing model initialization to fail with a `ValueError`. | Added `"silu": nn.SiLU()` to the activation registry in `get_activation()` so `GatedMLP` could instantiate the required activation successfully. | `fusion/models/utils/activation.py` |
+
 ---
 
 ## 3. Code Diff Summary
@@ -33,6 +41,8 @@
 | 1 | `tests/test_attention.py` | `assert torch.allclose(out_causal[:, 0, :], out_nomask[:, 0, :], atol=1e-6)` | `assert torch.allclose(out_a[:, 0, :], out_b[:, 0, :], atol=1e-6)` where `x_b[:, 1:, :] = torch.randn(1, T-1, embed_dim)` |
 | 2 | `spatial_attention.py` L53 | `x_out = x_attended.transpose(1, 2)` then `x_out.view(B, C, H, W)` | `x_out = x_attended.transpose(1, 2).contiguous()` then `x_out.view(B, C, H, W)` |
 | 3 | `tests/test_graph.py` | `out = model(x, edge_index, batch)` with unsorted edges | `sort_idx = edge_index[1].argsort(); edge_index = edge_index[:, sort_idx]` before forward call |
+
+| 4 | `activation.py` | `get_activation()` did not recognize `"silu"` and raised `ValueError`. | Added `"silu": nn.SiLU()` to the activation registry to support `GatedMLP`. |
 
 ---
 
